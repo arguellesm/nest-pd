@@ -1,0 +1,295 @@
+
+neuron otsuka_stn:
+
+  state:
+        
+    just_after_spike integer = 0
+    
+    # membrane potential
+    V_m mV = V_L
+    
+    # activation/inactivation variables
+    a  real = 0.0            
+    b  real = 0.0
+    c  real = 0.0
+    d1 real = 0.0
+    d2 real = 0.0
+    h  real = 0.0
+    m  real = 0.0
+    n  real = 0.0
+    p  real = 0.0
+    q  real = 0.0
+    r  real = 0.0
+    
+    # Ca concentration
+    Ca_C real = 0.0
+    
+    # receptors 
+    g_ampa_a1  real = 0.0
+    g_ampa_a2  real = 0.0
+    g_gabaa_a2 real = 0.0
+    g_gabaa_a1 real = 0.0
+    g_gabab_a2 real = 0.0
+    g_gabab_a1 real = 0.0
+    
+    # DA modulation
+    da2_k_1_              real =  90.0
+    da2_k_2_              real =   0.0036
+    da2_k_3_              real =   0.18
+    da2_k_4_              real =   0.034
+    da2_k_d_              real = 100.0
+    da2_g_max_            real =   1.0
+    da2_T_                real =   1e-3
+    da2_pulse_            real =   1.105
+    da2_n_                real =   4.0
+    da2_suppress_f        real =   1.0
+    da2_suppress_f_const  real =   0.85
+    da2_suppress_f_th     real =   0.5
+    da2_g_out             real =   0.0
+    da2_r_                real =   0.0
+    da2_s_                real =   0.0
+    
+  end
+
+  equations:
+        
+    # ionic currents
+    recordable inline I_L     pA = g_L * (V_m - V_L)
+    recordable inline I_K     pA = g_K * (n ** 4) * (V_m - V_K)
+    recordable inline I_Na    pA = g_Na * (m ** 3) * h * (V_m - V_Na)
+    recordable inline I_A     pA = g_Ia * (a ** 2) * (V_m - V_K)
+    recordable inline I_LCa   pA = g_LCa * (c ** 2) * d1 * d2 * (V_m - V_Ca)
+    recordable inline I_T     pA = g_T * (p ** 2) * q * (V_m - V_Ca)
+    recordable inline I_CaK   pA = g_CaK * (r ** 4) * (V_m - V_K)             # r^4 (shouno), r^2 (otsuka)
+    
+    # receptor currents
+    recordable inline I_AMPA  pA = convolve(g_ampa_a2,  AMPA)    * (V_m - V_E)    
+    recordable inline I_GABAA pA = convolve(g_gabaa_a2, GABA_A) * (V_m - V_gabaa)
+    recordable inline I_GABAB pA = convolve(g_gabab_a2, GABA_B) * (V_m - V_gabaa)
+    
+    n'  = (n_inf  -  n) / (tau_n0 + tau_n1 / ( exp(-(V_m-theta_tau_n0)/sigma_tau_n0) + exp(-(V_m-theta_tau_n1)/sigma_tau_n1) ))
+    m'  = (m_inf  -  m) / (tau_m0 + tau_m1 / ( 1.0 + exp(-(V_m-theta_tau_m)/sigma_tau_m) ))
+    h'  = (h_inf  -  h) / (tau_h0 + tau_h1 / ( exp(-(V_m-theta_tau_h0)/sigma_tau_h0) + exp(-(V_m-theta_tau_h1)/sigma_tau_h1) ))
+    a'  = (a_inf  -  a) / (tau_a0 + tau_a1 / ( 1.0 + exp(-(V_m-theta_tau_a)/sigma_tau_a) ))
+    b'  = (b_inf  -  b) / (tau_b0 + tau_b1 / ( exp(-(V_m-theta_tau_b0)/sigma_tau_b0) + exp(-(V_m-theta_tau_b1)/sigma_tau_b1) ))
+    c'  = (c_inf  -  c) / (tau_c0 + tau_c1 / ( exp(-(V_m-theta_tau_c0)/sigma_tau_c0) + exp(-(V_m-theta_tau_c1)/sigma_tau_c1) ))
+    d1' = (d1_inf - d1) / (tau_d0 + tau_d1 / ( exp(-(V_m-theta_tau_d0)/sigma_tau_d0) + exp(-(V_m-theta_tau_d1)/sigma_tau_d1) ))
+    d2' = (d2_inf - d2) / divisor_d2
+    p'  = (p_inf  -  p) / (tau_p0 + tau_p1 / ( exp(-(V_m-theta_tau_p0)/sigma_tau_p0) + exp(-(V_m-theta_tau_p1)/sigma_tau_p1) ))
+    q'  = (q_inf  -  q) / (tau_q0 + tau_q1 / ( exp(-(V_m-theta_tau_q0)/sigma_tau_q0) + exp(-(V_m-theta_tau_q1)/sigma_tau_q1) ))
+    r'  = (r_inf  -  r) / divisor_r
+    
+    # kernel function for each receptor 
+    kernel g_ampa_a2'  =  g_ampa_a1 - g_ampa_a2 / tau_syn_ampa
+           g_ampa_a1'  = -g_ampa_a1 / tau_syn_ampa
+   
+    kernel g_gabaa_a2' =  g_gabaa_a1 * (1.0/tau_syn_gabaa2 - 1.0/tau_syn_gabaa1) - g_gabaa_a2/tau_syn_gabaa1
+           g_gabaa_a1' = -g_gabaa_a1 / tau_syn_gabaa2
+    
+    kernel g_gabab_a2' =  g_gabab_a1 - g_gabab_a2/tau_syn_gabab
+           g_gabab_a1' = -g_gabab_a1 / tau_syn_gabab 
+    
+
+    # membrane potential (shouno)
+    V_m' = (- I_L - I_K - I_Na - I_A - I_T - I_LCa - I_CaK - (I_AMPA/area) - (I_GABAA/area) - (I_GABAB/area) + (I0/area) + (I_stim/area)) / C_m   
+        
+  end
+
+  parameters:
+    
+    # prevents unit errors during odes integration
+    divisor_d2 ms    = 130 ms     
+    divisor_r  ms    = 2 ms
+    divisor_r_inf mV = -0.08 mV
+    
+    V_th mV  = -30.0 mV        # threshold (shouno)
+    C_m pF   =   100 pF        # membrane capacitance 
+        
+    V_L mV   = -60.0 mV        # leak-current reversal potential
+    V_K mV   = -90.0 mV        # potassium current reversal potential (K+) 
+    V_Na mV  =  60.0 mV        # sodium current reversal potential (Na+)
+    V_Ca mV  = 140.0 mV        # calcium current reversal potential (Ca++) (source: shouno)
+    
+    # maximal conductances 
+    g_L mS   =  0.35 mS        # leak conductance
+    g_K mS   = 57.0  mS        # postassium conductance
+    g_Na mS  = 49.0  mS        # sodium conductance          
+    g_Ia mS  =  5.0  mS        # A-current conductance
+    g_LCa mS = 15.0  mS        # L-type calcium conductance
+    g_T mS   =  5.0  mS        # T-current conductance
+    g_CaK mS =  1.0  mS        # AHP-current conductance
+    
+    # time constants of activation/inactivation
+    tau_n0 ms =   0.0  ms 
+    tau_n1 ms =  11.0  ms
+    tau_m0 ms =   0.2  ms
+    tau_m1 ms =   3.0  ms
+    tau_h0 ms =   0.0  ms
+    tau_h1 ms =  24.5  ms
+    tau_b0 ms =   0.0  ms
+    tau_b1 ms = 200.0  ms
+    tau_c0 ms =  45.0  ms
+    tau_c1 ms =  10.0  ms
+    tau_d0 ms = 400.0  ms
+    tau_d1 ms = 500.0  ms
+    tau_p0 ms =   5.0  ms
+    tau_p1 ms =   0.33 ms
+    tau_q0 ms =  10.0  ms # otsuka: 0    shouno:10
+    tau_q1 ms = 400.0  ms # otsuka: 400  shouno: 1600
+    tau_a0 ms =   1.0  ms
+    tau_a1 ms =   1.0  ms
+    
+    # half activation voltages
+    theta_n  mV = -41.0 mV
+    theta_m  mV = -40.0 mV
+    theta_h  mV = -45.5 mV
+    theta_a  mV = -45.0 mV
+    theta_b  mV = -90.0 mV
+    theta_c  mV = -30.6 mV
+    theta_d1 mV = -60.0 mV
+    theta_p  mV = -56.0 mV
+    theta_q  mV = -85.0 mV
+    
+    # slope factors
+    sigma_n  mV = -14.0  mV
+    sigma_m  mV =  -8.0  mV
+    sigma_h  mV =   6.4  mV
+    sigma_a  mV = -14.7  mV
+    sigma_b  mV =   7.5  mV
+    sigma_c  mV =  -5.0  mV
+    sigma_d1 mV =   7.5  mV
+    sigma_p  mV =  -6.7  mV
+    sigma_q  mV =   5.8  mV
+    sigma_d2 mV =   0.02 mV
+    
+    theta_tau_m  mV =  -53.0 mV
+    theta_tau_a  mV =  -40.0 mV
+    theta_tau_n0 mV =  -40.0 mV
+    theta_tau_n1 mV =  -40.0 mV
+    theta_tau_h0 mV =  -50.0 mV
+    theta_tau_h1 mV =  -50.0 mV
+    theta_tau_b0 mV =  -60.0 mV
+    theta_tau_b1 mV =  -40.0 mV
+    theta_tau_c0 mV =  -27.0 mV
+    theta_tau_c1 mV =  -50.0 mV
+    theta_tau_d0 mV =  -40.0 mV
+    theta_tau_d1 mV =  -20.0 mV
+    theta_tau_p0 mV =  -27.0 mV
+    theta_tau_p1 mV = -102.0 mV
+    theta_tau_q0 mV =  -50.0 mV
+    theta_tau_q1 mV =  -50.0 mV
+    
+    # slope factor for the voltage dependence of time constants
+    sigma_tau_m  mV =   -0.7 mV 
+    sigma_tau_a  mV =   -0.5 mV
+    sigma_tau_n0 mV =  -40.0 mV
+    sigma_tau_n1 mV =   50.0 mV
+    sigma_tau_h0 mV =  -15.0 mV
+    sigma_tau_h1 mV =   16.0 mV
+    sigma_tau_b0 mV =  -30.0 mV
+    sigma_tau_b1 mV =   10.0 mV
+    sigma_tau_c0 mV =  -20.0 mV
+    sigma_tau_c1 mV =   15.0 mV
+    sigma_tau_d0 mV =  -15.0 mV
+    sigma_tau_d1 mV =   20.0 mV
+    sigma_tau_p0 mV =  -10.0 mV
+    sigma_tau_p1 mV =   15.0 mV
+    sigma_tau_q0 mV =  -15.0 mV
+    sigma_tau_q1 mV =   16.0 mV
+    
+    k1_r    real = 0.17       # dissociation constant of calcium-dependent AHP current
+    k1_d2   real = 0.1        # dissociation constant of calcium-dependent AHP current
+    k_Ca    real = 2.0        # calcium pump rate constant
+        
+    # time constants for excitatory (ampa) and inhibitory (gaba) synapses
+    tau_syn_ampa        ms =   1.0 ms
+    tau_syn_gabaa_rise  ms =   0.4 ms
+    tau_syn_gabaa_decay ms =   7.7 ms
+    tau_syn_gabab       ms = 175.2 ms
+    tau_syn_gabaa1      ms = tau_syn_gabaa_decay
+    tau_syn_gabaa2      ms = tau_syn_gabaa1 * tau_syn_gabaa_rise /(tau_syn_gabaa1 + tau_syn_gabaa_rise)
+    
+    # synapse conductances 
+    ampa_conductance  nS = 0.0 nS
+    gabaa_conductance nS = 0.0 nS
+    gabab_conductance nS = 0.0 nS
+    
+    # reversal potential for excitatory and inhibitory synapses
+    V_E     mV =   0.0 mV
+    V_gabaa mV = -78.9 mV
+    V_gabab mV = -93.3 mV
+    
+    # persistent DC input current
+    I0 pA = 0.0 pA
+    
+    # refractory period
+    t_ref ms = 2 ms  
+    
+    # scale parameter 
+    area real = 0.1 
+    
+    # DA modulation (0.0: no modulation, 1.0: modulation)
+    da2_Ca_modulation real = 0.0      
+        
+    output_all_variable_data boolean = false
+    output_condunctance_data boolean = false
+    inactivate_GABAA_synapse boolean = false
+    
+    # activation/inactivation variables infinity 
+    n_inf  real = 1.0/( 1.0+exp((V_m-theta_n)/sigma_n))       # n:  I_K activation variable
+    m_inf  real = 1.0/( 1.0+exp((V_m-theta_m)/sigma_m))       # m:  I_Na activation variable
+    h_inf  real = 1.0/( 1.0+exp((V_m-theta_h)/sigma_h))       # h:  I_Na inactivation variable
+    a_inf  real = 1.0/( 1.0+exp((V_m-theta_a)/sigma_a))       # a:  I_A activation variable
+    b_inf  real = 1.0/( 1.0+exp((V_m-theta_b)/sigma_b))       # b:  I_A inactivation variable
+    c_inf  real = 1.0/( 1.0+exp((V_m-theta_c)/sigma_c))       # c:  I_LCa activation variable
+    d1_inf real = 1.0/( 1.0+exp((V_m-theta_d1)/sigma_d1))     # d1: I_LCa inactivation variable
+    d2_inf real = 1.0/( 1.0+exp((Ca_C - k1_d2)/sigma_d2))     # d2: I_LCa inactivation variable
+    p_inf  real = 1.0/( 1.0+exp((V_m-theta_p)/sigma_p))       # p:  I_T activation variable
+    q_inf  real = 1.0/( 1.0+exp((V_m-theta_q)/sigma_q))       # q:  I_T inactivation variable
+    r_inf  real = 1.0/( 1.0+exp((Ca_C - k1_r)/divisor_r_inf)) # r:  I_CaK activation variable
+     
+  end
+
+  internals:
+    delta_ampa  real = e / tau_syn_ampa 
+    delta_gabaa real = 1.0 / ( ((tau_syn_gabaa2/tau_syn_gabaa1)**(tau_syn_gabaa_rise/tau_syn_gabaa1)) - ((tau_syn_gabaa2/tau_syn_gabaa1)**(tau_syn_gabaa_rise/tau_syn_gabaa2)) )
+    delta_gabab real = e / tau_syn_gabab
+    
+    RefractoryCounts integer = steps(t_ref) 
+  end
+
+  input:
+    AMPA nS      <- excitatory spike
+    GABA_A nS    <- inhibitory spike
+    GABA_B nS    <- inhibitory spike
+    DA_spikes nS <- spike
+    I_stim pA    <- continuous
+  end
+
+  output: spike
+
+  update:
+                
+    U_old mV = V_m
+    
+    # solve differential equations
+    integrate_odes()
+        
+    # da modulation
+    if da2_Ca_modulation == 0.0:
+        if da2_g_out >= da2_suppress_f_th:
+            da2_suppress_f = da2_suppress_f_const
+        end
+    end
+        
+    # check membrane potential and fire
+    if V_m < V_th:
+        just_after_spike = 0
+    elif V_m >= V_th and just_after_spike == 0:      
+        just_after_spike = 1
+        emit_spike()   
+    end
+      
+  end
+end
+
